@@ -153,7 +153,7 @@ packages:
     revision: 0284701febb87be4e8bf15159bf1a52a157580fe
     version: null
     source:
-      Git: git@gitlab.tue.nl:es/convolve-private/ethcluster.git
+      Git: git@iis-git.ee.ethz.ch:convolveto/ethcluster.git
     dependencies: []
   fpnew:
     revision: a8e0cba6dd50f357ece73c2c955d96efc3c6c315
@@ -205,7 +205,7 @@ packages:
     revision: 2fc9c58b8462903e6439ba4875fdd162c4e067c2
     version: null
     source:
-      Git: git@gitlab.tue.nl:es/convolve-private/kulcluster.git
+      Git: git@iis-git.ee.ethz.ch:convolveto/kulcluster.git
     dependencies: []
   memory_island:
     revision: 64828cb7a9ccc1f1656ec92d06129072f445c319
@@ -294,19 +294,19 @@ packages:
     revision: d906e47c3d625d034a52eb77872e6b07b759e194
     version: null
     source:
-      Git: git@gitlab.tue.nl:es/convolve-private/tuddcim.git
+      Git: git@iis-git.ee.ethz.ch:convolveto/tuddcim.git
     dependencies: []
   tuedcim:
     revision: 67ee3584398bf752e4347f45f82b716765ec97c2
     version: null
     source:
-      Git: git@gitlab.tue.nl:es/convolve-private/tuedcim.git
+      Git: git@iis-git.ee.ethz.ch:convolveto/tuedcim.git
     dependencies: []
   tuemega:
     revision: b0b1fd2ba0733edb1ecdf6bdb758c005ee385499
     version: null
     source:
-      Git: git@gitlab.tue.nl:es/convolve-private/tuemega.git
+      Git: git@iis-git.ee.ethz.ch:convolveto/tuemega.git
     dependencies: []
   unbent:
     revision: e9c9d5cfb635f2d4668c816ce9235798cfecb297
