@@ -33,6 +33,7 @@ workspace:
     cheshire: cheshire
     idma: idma
     hyperbus: hyperbus
+    ethcluster: ethcluster
 
 sources:
   - hw/chimera_pkg.sv
