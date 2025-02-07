@@ -6,3 +6,4 @@
 
 set BINARY ../../../sw/tests/testCluster.memisl.elf
 set SELCFG 0
+set PRELOAD_MODE 3
