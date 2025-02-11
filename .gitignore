@@ -42,3 +42,5 @@ compile.tcl
 logs
 vsim.wlf
 *.transcript
+
+nonfree/

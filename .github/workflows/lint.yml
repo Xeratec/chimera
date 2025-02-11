@@ -28,6 +28,7 @@ jobs:
           utils/*
           sw/include/regs/*
           scripts/run_clang_format.py
+          target/sim/vsim/wave/*
 
 
   lint-sv:
