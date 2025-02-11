@@ -42,7 +42,16 @@ int main() {
         offloadToCluster(testReturn, i);
         retVal |= waitForCluster(i);
         setClusterClockGating(regPtr, i, 1);
+        setClusterReset(regPtr, i, 1);
+    }
+
+    for (int i = 0; i < _chimera_numClusters; i++) {
         setClusterReset(regPtr, i, 0);
+        setClusterClockGating(regPtr, i, 0);
+        offloadToCluster(testReturn, i);
+        retVal |= waitForCluster(i);
+        setClusterClockGating(regPtr, i, 1);
+        setClusterReset(regPtr, i, 1);
     }
 
     return (retVal != (TESTVAL | 0x000000001));
