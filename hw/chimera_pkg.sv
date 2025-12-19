@@ -121,6 +121,7 @@ ExtClusters
   // Memory Island
   localparam byte_bt MemIslandIdx = ClusterIdx[ExtClusters-1] + 1;
   localparam doub_bt MemIslRegionStart = 64'h4800_0000;
+  // WIESEP: Address space 256 KiB
   localparam doub_bt MemIslRegionEnd = 64'h4804_0000;
 
   localparam aw_bt MemIslAxiMstIdWidth = 1;
@@ -129,11 +130,12 @@ ExtClusters
   localparam byte_bt MemIslWidePorts = $countones(ChimeraClusterCfg.hasWideMasterPort);
   localparam byte_bt MemIslNumWideBanks = 2;
   localparam shrt_bt MemIslWordsPerBank = 2048;
+  // Memory Island size = 16 * 2 * 2048 * 4 B = 256 KB
 
   // Hyperbus
   localparam byte_bt HyperbusIdx = MemIslandIdx + 1;
   localparam doub_bt HyperbusRegionStart = 64'h5000_0000;
-  //TODO(smazzola): Correct size of HyperRAM?
+  // WIESEP: Address space 256 MiB
   localparam doub_bt HyperbusRegionEnd = HyperbusRegionStart + 64'h1000_0000;
 
   localparam int unsigned HypNumPhys = 1;
