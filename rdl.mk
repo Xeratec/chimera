@@ -55,7 +55,7 @@ PEAKRDL_INCLUDES += $(CHS_PEAKRDL_INCLUDES)
 endif
 
 .PHONY: chim-rdl chim-rdl-markdown chim-rdl-c-header chim-rdl-raw-header \
-        chim-rdl-sw-headers chim-rdl-regblock chim-rdl-clean
+        chim-rdl-sw-headers chim-rdl-sdk-headers chim-rdl-regblock chim-rdl-clean
 
 $(RDL_GEN_DIR):
 	mkdir -p $@
@@ -63,8 +63,11 @@ $(RDL_GEN_DIR):
 chim-rdl-markdown: | $(RDL_GEN_DIR) ## Generate the global address-map Markdown (docs/addressmap.md)
 	$(PEAKRDL) markdown $(RDL_TOP) $(PEAKRDL_INCLUDES) -o $(DOCS_ADDRMAP)
 
-chim-rdl-c-header: | $(RDL_GEN_DIR) ## Generate the SoC address-map register C header
+chim-rdl-c-header: | $(RDL_GEN_DIR) ## Generate the SoC address-map + register C headers
 	$(PEAKRDL) c-header $(RDL_TOP) $(PEAKRDL_INCLUDES) -o $(RDL_GEN_DIR)/chimera_addrmap.h
+	# SoC-control register block on its own (packs to 0x70; usable on 32-bit,
+	# unlike the full address-map header). Consumed by the SDK's soc_regs.h shim.
+	$(PEAKRDL) c-header $(RDL_REGS) -I $(RDL_DIR) -P NrClusters=$(NUMCLUSTERS) -o $(RDL_GEN_DIR)/chimera_soc_regs.h
 
 chim-rdl-raw-header: | $(RDL_GEN_DIR) ## Generate SV + C address-map base-address headers
 	$(PEAKRDL) raw-header $(RDL_TOP) $(PEAKRDL_INCLUDES) --format svh -o $(RDL_GEN_DIR)/chimera_addrmap.svh
@@ -80,7 +83,21 @@ chim-rdl-sw-headers: | $(RDL_GEN_DIR) ## Generate the Snitch cluster SW headers 
 	$(SN_CLUSTERGEN_CMD) --template $(SN_SDK_DEV)/templates/snitch_cluster_cfg.h.tpl     -o $(RDL_GEN_DIR)/snitch_cluster_cfg.h
 	$(SN_CLUSTERGEN_CMD) --template $(SN_SDK_DEV)/templates/snitch_cluster_addrmap.h.tpl -o $(RDL_GEN_DIR)/snitch_cluster_addrmap.h
 
-chim-rdl: chim-rdl-markdown chim-rdl-c-header chim-rdl-raw-header chim-rdl-sw-headers ## Generate the memory-map artifacts
+# Register headers consumed by the chimera-sdk 'chimera-gen' target that come
+# from dependency IPs rather than chimera's own RDL. Generated into .generated
+# (on the SDK include path) so the SDK's thin *_regs.h shims can alias the
+# legacy flat macro names onto these single-source-of-truth headers.
+BENDER      ?= bender
+REGTOOL     ?= $(shell $(BENDER) path register_interface)/vendor/lowrisc_opentitan/util/regtool.py
+CLINT_HJSON ?= $(shell $(BENDER) path clint)/src/clint.hjson
+
+chim-rdl-sdk-headers: | $(RDL_GEN_DIR) ## Generate dependency register headers (cheshire, clint) for the SDK
+	$(PEAKRDL) c-header $(CHS_ROOT)/hw/cheshire.rdl -o $(RDL_GEN_DIR)/cheshire.h \
+		-b ltoh --type-style hier $(CHS_PEAKRDL_INCLUDES) $(CHS_PEAKRDL_PARAMS)
+	# Unique name: the SDK's own clint driver API header is also called clint.h.
+	$(RDL_PYTHON) $(REGTOOL) --cdefines $(CLINT_HJSON) > $(RDL_GEN_DIR)/clint_hw_regs.h
+
+chim-rdl: chim-rdl-markdown chim-rdl-c-header chim-rdl-raw-header chim-rdl-sw-headers chim-rdl-sdk-headers ## Generate the memory-map artifacts
 
 chim-rdl-clean: ## Remove generated SystemRDL artifacts
 	rm -rf $(RDL_GEN_DIR) $(DOCS_ADDRMAP)
