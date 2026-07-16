@@ -91,11 +91,16 @@ BENDER      ?= bender
 REGTOOL     ?= $(shell $(BENDER) path register_interface)/vendor/lowrisc_opentitan/util/regtool.py
 CLINT_HJSON ?= $(shell $(BENDER) path clint)/src/clint.hjson
 
-chim-rdl-sdk-headers: | $(RDL_GEN_DIR) ## Generate dependency register headers (cheshire, clint) for the SDK
+chim-rdl-sdk-headers: | $(RDL_GEN_DIR) ## Generate dependency register headers (cheshire, clint, snitch) for the SDK
 	$(PEAKRDL) c-header $(CHS_ROOT)/hw/cheshire.rdl -o $(RDL_GEN_DIR)/cheshire.h \
 		-b ltoh --type-style hier $(CHS_PEAKRDL_INCLUDES) $(CHS_PEAKRDL_PARAMS)
 	# Unique name: the SDK's own clint driver API header is also called clint.h.
 	$(RDL_PYTHON) $(REGTOOL) --cdefines $(CLINT_HJSON) > $(RDL_GEN_DIR)/clint_hw_regs.h
+	# Snitch cluster cfg + addrmap (clustergen) and peripheral regs (reggen).
+	$(SN_CLUSTERGEN_CMD) --template $(SN_SDK_DEV)/templates/snitch_cluster_cfg.h.tpl     -o $(RDL_GEN_DIR)/snitch_cluster_cfg.h
+	$(SN_CLUSTERGEN_CMD) --template $(SN_SDK_DEV)/templates/snitch_cluster_addrmap.h.tpl -o $(RDL_GEN_DIR)/snitch_cluster_addrmap.h
+	$(RDL_PYTHON) $(REGTOOL) -D -o $(RDL_GEN_DIR)/snitch_cluster_peripheral.h \
+		$(SN_SDK_DEV)/templates/snitch_cluster_peripheral_reg.hjson
 
 chim-rdl: chim-rdl-markdown chim-rdl-c-header chim-rdl-raw-header chim-rdl-sw-headers chim-rdl-sdk-headers ## Generate the memory-map artifacts
 
