@@ -18,7 +18,7 @@ export SN_LLVM_BINROOT=/usr/scratch2/vulcano/colluca/tools/riscv32-snitch-llvm-a
 
 # One-command bootstrap: fetch HW dependencies (fast no-op if already checked
 # out) so a fresh clone is buildable after a single `source iis-env.sh`.
-$BENDER checkout
+$BENDER checkout --suppress E24
 
 # Python environment via uv. Keep the uv cache on the (writable, large) repo
 # scratch rather than $HOME (small IIS quota).

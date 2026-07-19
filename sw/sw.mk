@@ -27,7 +27,7 @@ CHS_BROM_FLAGS += -march=rv64gc_zifencei -mabi=lp64d
 # --- chimera-sdk build configuration ---
 CHIM_SDK_DIR             ?= $(CHIM_SW_DIR)/deps/chimera-sdk
 CHIM_SDK_BUILD_DIR       ?= $(CHIM_SDK_DIR)/build
-CHIM_SDK_TARGET_PLATFORM ?= chimera-open
+CHIM_SDK_TARGET_PLATFORM ?= chimera-gen
 CHIM_SDK_HW_BACKEND      ?= RTL
 CHIM_SDK_UNIFIED_ELF     ?= ON
 # Container-internal toolchain paths (provided by the image).
@@ -49,10 +49,14 @@ CHIM_SDK_CMAKE_ARGS = \
 chim-sw-init: ## Init/update the chimera-sdk submodule (recursive)
 	git -C $(CHIM_ROOT) submodule update --init --recursive $(CHIM_SDK_DIR)
 
-chim-sw-configure: ## Configure the SoC software (chimera-sdk, CMake) in the container
+# The chimera-gen target consumes the SystemRDL/reggen-generated headers from
+# .generated/, so regenerate them (chim-rdl) before configuring/building the SDK.
+# Order-only: chim-rdl is phony and cheap; it just refreshes the single source of
+# truth. (chimera-open ignores these headers, so the extra step is harmless.)
+chim-sw-configure: | chim-rdl ## Configure the SoC software (chimera-sdk, CMake) in the container
 	$(SDK_CONTAINER) "cmake $(CHIM_SDK_CMAKE_ARGS) -B build"
 
-chim-sw-build: ## Build the SoC software (chimera-sdk) in the container
+chim-sw-build: | chim-rdl ## Build the SoC software (chimera-sdk) in the container
 	$(SDK_CONTAINER) "cmake --build build -j"
 
 chim-sw: chim-sw-configure chim-sw-build ## Configure + build the SoC software (chimera-sdk)
@@ -96,7 +100,7 @@ endif
 
 .PHONY: chim-test-configure chim-test chim-test-ctest
 
-chim-test-configure: ## Configure chimera-sdk for RTL-sim testing (registers ctest cases)
+chim-test-configure: | chim-rdl ## Configure chimera-sdk for RTL-sim testing (registers ctest cases)
 	$(SDK_CONTAINER) "cmake $(CHIM_SDK_SIM_CMAKE_ARGS) -B build"
 
 # Re-configure (sim mode) and rebuild before running, so the suite always
