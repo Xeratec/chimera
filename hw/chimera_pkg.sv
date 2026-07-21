@@ -122,6 +122,12 @@ ExtClusters
     64'h40A0_0000, 64'h4080_0000, 64'h4060_0000, 64'h4040_0000, 64'h4020_0000
   };
 
+  // Contiguous span covering all cluster regions. Wide (DMA) accesses that fall
+  // in this span are routed cluster-to-cluster over the wide crossbar (kept at
+  // full 512-bit width) instead of being downsized to the narrow interconnect.
+  localparam doub_bt ClusterWideRegionStart = ClusterRegionStart[0];
+  localparam doub_bt ClusterWideRegionEnd = ClusterRegionEnd[ExtClusters-1];
+
   localparam aw_bt ClusterNarrowAxiMstIdWidth = 1;
 
   // Memory Island

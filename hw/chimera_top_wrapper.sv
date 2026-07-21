@@ -94,6 +94,58 @@ module chimera_top_wrapper
   localparam type axi_wide_slv_req_t = mem_isl_wide_axi_slv_req_t;
   localparam type axi_wide_slv_rsp_t = mem_isl_wide_axi_slv_rsp_t;
 
+  // ---------------------------------------------------------------------------
+  // Cluster-to-cluster wide (DMA) crossbar
+  // ExtClusters managers (each cluster's wide_cluster_out, id = MemIslAxiMstIdWidth)
+  // routed by address to ExtClusters subordinates (each cluster's wide_in). The
+  // xbar grows the ID by clog2(ExtClusters); a per-cluster iw converter brings it
+  // back down before the cluster's inbound wide port.
+  // ---------------------------------------------------------------------------
+  localparam int unsigned ClusterWideDataWidth = ChsCfg.AxiDataWidth * Cfg.MemIslNarrowToWideFactor;
+  localparam int unsigned ClusterWideSlvIdWidth = Cfg.MemIslAxiMstIdWidth;
+  localparam int unsigned ClusterWideMstIdWidth = Cfg.MemIslAxiMstIdWidth + $clog2(ExtClusters);
+
+  typedef logic [ChsCfg.AddrWidth-1:0]       cluster_wide_addr_t;
+  typedef logic [ClusterWideDataWidth-1:0]   cluster_wide_data_t;
+  typedef logic [ClusterWideDataWidth/8-1:0] cluster_wide_strb_t;
+  typedef logic [ChsCfg.AxiUserWidth-1:0]    cluster_wide_user_t;
+  typedef logic [ClusterWideMstIdWidth-1:0]  cluster_wide_mst_id_t;
+  `AXI_TYPEDEF_ALL(cluster_wide_xbar_mst, cluster_wide_addr_t, cluster_wide_mst_id_t,
+                   cluster_wide_data_t, cluster_wide_strb_t, cluster_wide_user_t)
+
+  typedef struct packed {
+    logic [$bits(aw_bt)-1:0] idx;
+    cluster_wide_addr_t      start_addr;
+    cluster_wide_addr_t      end_addr;
+  } cluster_wide_rule_t;
+
+  function automatic cluster_wide_rule_t [ExtClusters-1:0] gen_cluster_wide_map();
+    cluster_wide_rule_t [ExtClusters-1:0] ret;
+    for (int i = 0; i < ExtClusters; ++i)
+      ret[i] = '{idx: i[$bits(aw_bt)-1:0],
+                 start_addr: ClusterRegionStart[i][ChsCfg.AddrWidth-1:0],
+                 end_addr: ClusterRegionEnd[i][ChsCfg.AddrWidth-1:0]};
+    return ret;
+  endfunction
+  localparam cluster_wide_rule_t [ExtClusters-1:0] ClusterWideMap = gen_cluster_wide_map();
+
+  localparam axi_pkg::xbar_cfg_t ClusterWideXbarCfg = '{
+    NoSlvPorts:         ExtClusters,
+    NoMstPorts:         ExtClusters,
+    MaxMstTrans:        ChsCfg.AxiMaxMstTrans,
+    MaxSlvTrans:        ChsCfg.AxiMaxSlvTrans,
+    FallThrough:        0,
+    LatencyMode:        axi_pkg::CUT_ALL_PORTS,
+    PipelineStages:     0,
+    AxiIdWidthSlvPorts: ClusterWideSlvIdWidth,
+    AxiIdUsedSlvPorts:  ClusterWideSlvIdWidth,
+    UniqueIds:          0,
+    AxiAddrWidth:       ChsCfg.AddrWidth,
+    AxiDataWidth:       ClusterWideDataWidth,
+    NoAddrRules:        ExtClusters,
+    default:            '0
+  };
+
   chimera_reg_pkg::chimera_soc_regs__out_t chimera_hwif_out;
 
   // External AXI crossbar ports
@@ -103,6 +155,14 @@ module chimera_top_wrapper
   axi_llc_rsp_t axi_llc_rsp;
   axi_wide_mst_req_t [iomsb(ChsCfg.AxiExtNumWideMst):0] axi_wide_mst_req;
   axi_wide_mst_rsp_t [iomsb(ChsCfg.AxiExtNumWideMst):0] axi_wide_mst_rsp;
+
+  // Cluster-to-cluster wide crossbar nets
+  axi_wide_mst_req_t          [ExtClusters-1:0] cluster_wide_out_req;      // cluster -> xbar (id 2)
+  axi_wide_mst_rsp_t          [ExtClusters-1:0] cluster_wide_out_rsp;
+  cluster_wide_xbar_mst_req_t [ExtClusters-1:0] cluster_wide_xbar_mst_req; // xbar -> iw   (id 5)
+  cluster_wide_xbar_mst_resp_t [ExtClusters-1:0] cluster_wide_xbar_mst_rsp;
+  axi_wide_mst_req_t          [ExtClusters-1:0] cluster_wide_in_req;       // iw -> cluster (id 2)
+  axi_wide_mst_rsp_t          [ExtClusters-1:0] cluster_wide_in_rsp;
   axi_slv_req_t [iomsb(ChsCfg.AxiExtNumSlv):0] axi_slv_req;
   axi_slv_rsp_t [iomsb(ChsCfg.AxiExtNumSlv):0] axi_slv_rsp;
 
@@ -407,9 +467,74 @@ module chimera_top_wrapper
     .narrow_out_resp_i(axi_mst_rsp),
     .wide_out_req_o   (axi_wide_mst_req),
     .wide_out_resp_i  (axi_wide_mst_rsp),
+    .wide_cluster_out_req_o (cluster_wide_out_req),
+    .wide_cluster_out_resp_i(cluster_wide_out_rsp),
+    .wide_in_req_i          (cluster_wide_in_req),
+    .wide_in_resp_o         (cluster_wide_in_rsp),
     .isolate_i        (pmu_iso_en_clusters_i),
     .isolate_o        (pmu_iso_ack_clusters_o)
   );
+
+  // ---------------------------------------
+  // |   Cluster-to-cluster wide xbar      |
+  // ---------------------------------------
+  axi_xbar #(
+    .Cfg          (ClusterWideXbarCfg),
+    .ATOPs        (1),
+    .Connectivity ('1),
+    .slv_aw_chan_t(mem_isl_wide_axi_mst_aw_chan_t),
+    .mst_aw_chan_t(cluster_wide_xbar_mst_aw_chan_t),
+    .w_chan_t     (mem_isl_wide_axi_mst_w_chan_t),
+    .slv_b_chan_t (mem_isl_wide_axi_mst_b_chan_t),
+    .mst_b_chan_t (cluster_wide_xbar_mst_b_chan_t),
+    .slv_ar_chan_t(mem_isl_wide_axi_mst_ar_chan_t),
+    .mst_ar_chan_t(cluster_wide_xbar_mst_ar_chan_t),
+    .slv_r_chan_t (mem_isl_wide_axi_mst_r_chan_t),
+    .mst_r_chan_t (cluster_wide_xbar_mst_r_chan_t),
+    .slv_req_t    (axi_wide_mst_req_t),
+    .slv_resp_t   (axi_wide_mst_rsp_t),
+    .mst_req_t    (cluster_wide_xbar_mst_req_t),
+    .mst_resp_t   (cluster_wide_xbar_mst_resp_t),
+    .rule_t       (cluster_wide_rule_t)
+  ) i_cluster_wide_xbar (
+    .clk_i                (soc_clk_i),
+    .rst_ni               (rst_ni),
+    .test_i               ('0),
+    .slv_ports_req_i      (cluster_wide_out_req),
+    .slv_ports_resp_o     (cluster_wide_out_rsp),
+    .mst_ports_req_o      (cluster_wide_xbar_mst_req),
+    .mst_ports_resp_i     (cluster_wide_xbar_mst_rsp),
+    .addr_map_i           (ClusterWideMap),
+    .en_default_mst_port_i('0),
+    .default_mst_port_i   ('0)
+  );
+
+  // Per-cluster inbound ID-width conversion (xbar mst id -> cluster wide_in id)
+  for (genvar c = 0; c < ExtClusters; c++) begin : gen_cluster_wide_in_iw
+    axi_iw_converter #(
+      .AxiSlvPortIdWidth     (ClusterWideMstIdWidth),
+      .AxiMstPortIdWidth     (ClusterWideSlvIdWidth),
+      .AxiSlvPortMaxUniqIds  (2 ** ClusterWideMstIdWidth),
+      .AxiSlvPortMaxTxnsPerId(4),
+      .AxiSlvPortMaxTxns     (16),
+      .AxiMstPortMaxUniqIds  (2 ** ClusterWideSlvIdWidth),
+      .AxiMstPortMaxTxnsPerId(4),
+      .AxiAddrWidth          (ChsCfg.AddrWidth),
+      .AxiDataWidth          (ClusterWideDataWidth),
+      .AxiUserWidth          (ChsCfg.AxiUserWidth),
+      .slv_req_t             (cluster_wide_xbar_mst_req_t),
+      .slv_resp_t            (cluster_wide_xbar_mst_resp_t),
+      .mst_req_t             (axi_wide_mst_req_t),
+      .mst_resp_t            (axi_wide_mst_rsp_t)
+    ) i_cluster_wide_in_iw (
+      .clk_i     (soc_clk_i),
+      .rst_ni    (rst_ni),
+      .slv_req_i (cluster_wide_xbar_mst_req[c]),
+      .slv_resp_o(cluster_wide_xbar_mst_rsp[c]),
+      .mst_req_o (cluster_wide_in_req[c]),
+      .mst_resp_i(cluster_wide_in_rsp[c])
+    );
+  end
 
   // Generate indices and get maps for all ports
   localparam axi_in_t AxiIn = gen_axi_in(ChsCfg);
