@@ -51,13 +51,6 @@ module chimera_clu_domain
   output wide_out_req_t    [          iomsb(Cfg.ChsCfg.AxiExtNumWideMst):0] wide_out_req_o,
   input  wide_out_resp_t   [          iomsb(Cfg.ChsCfg.AxiExtNumWideMst):0] wide_out_resp_i,
   //-----------------------------
-  // Cluster-to-cluster wide crossbar ports (one per cluster)
-  //-----------------------------
-  output wide_out_req_t    [                               ExtClusters-1:0] wide_cluster_out_req_o,
-  input  wide_out_resp_t   [                               ExtClusters-1:0] wide_cluster_out_resp_i,
-  input  wide_out_req_t    [                               ExtClusters-1:0] wide_in_req_i,
-  output wide_out_resp_t   [                               ExtClusters-1:0] wide_in_resp_o,
-  //-----------------------------
   // Isolation control ports
   //-----------------------------
   input  logic             [                               ExtClusters-1:0] isolate_i,
@@ -78,16 +71,10 @@ module chimera_clu_domain
   narrow_out_resp_t [    iomsb(Cfg.ChsCfg.AxiExtNumMst):0] narrow_out_isolated_resp;
   wide_out_req_t    [iomsb(Cfg.ChsCfg.AxiExtNumWideMst):0] wide_out_isolated_req;
   wide_out_resp_t   [iomsb(Cfg.ChsCfg.AxiExtNumWideMst):0] wide_out_isolated_resp;
-  wide_out_req_t    [                       ExtClusters-1:0] wide_cluster_out_isolated_req;
-  wide_out_resp_t   [                       ExtClusters-1:0] wide_cluster_out_isolated_resp;
-  wide_out_req_t    [                       ExtClusters-1:0] wide_in_isolated_req;
-  wide_out_resp_t   [                       ExtClusters-1:0] wide_in_isolated_resp;
 
   logic             [    iomsb(Cfg.ChsCfg.AxiExtNumSlv):0] isolated_narrow_in;
   logic             [    iomsb(Cfg.ChsCfg.AxiExtNumMst):0] isolated_narrow_out;
   logic             [iomsb(Cfg.ChsCfg.AxiExtNumWideMst):0] isolated_wide_out;
-  logic             [                       ExtClusters-1:0] isolated_wide_cluster_out;
-  logic             [                       ExtClusters-1:0] isolated_wide_in;
 
 
 
@@ -167,55 +154,9 @@ module chimera_clu_domain
         .isolated_o(isolated_wide_out[extClusterIdx])
       );
 
-      // Isolation on the outbound cluster-to-cluster wide port
-      axi_isolate #(
-        .NumPending          (Cfg.ChsCfg.AxiMaxSlvTrans),
-        .TerminateTransaction(0),
-        .AtopSupport         (1),
-        .AxiAddrWidth        (Cfg.ChsCfg.AddrWidth),
-        .AxiDataWidth        (AxiWideDataWidth),
-        .AxiIdWidth          (Cfg.MemIslAxiMstIdWidth),
-        .AxiUserWidth        (Cfg.ChsCfg.AxiUserWidth),
-        .axi_req_t           (wide_out_req_t),
-        .axi_resp_t          (wide_out_resp_t)
-      ) i_iso_wide_cluster_out (
-        .clk_i     (soc_clk_i),
-        .rst_ni    (rst_ni[extClusterIdx]),
-        .slv_req_i (wide_cluster_out_isolated_req[extClusterIdx]),
-        .slv_resp_o(wide_cluster_out_isolated_resp[extClusterIdx]),
-        .mst_req_o (wide_cluster_out_req_o[extClusterIdx]),
-        .mst_resp_i(wide_cluster_out_resp_i[extClusterIdx]),
-        .isolate_i (isolate_i[extClusterIdx]),
-        .isolated_o(isolated_wide_cluster_out[extClusterIdx])
-      );
-
-      // Isolation on the inbound wide port (from the cluster-to-cluster crossbar)
-      axi_isolate #(
-        .NumPending          (Cfg.ChsCfg.AxiMaxSlvTrans),
-        .TerminateTransaction(0),
-        .AtopSupport         (1),
-        .AxiAddrWidth        (Cfg.ChsCfg.AddrWidth),
-        .AxiDataWidth        (AxiWideDataWidth),
-        .AxiIdWidth          (Cfg.MemIslAxiMstIdWidth),
-        .AxiUserWidth        (Cfg.ChsCfg.AxiUserWidth),
-        .axi_req_t           (wide_out_req_t),
-        .axi_resp_t          (wide_out_resp_t)
-      ) i_iso_wide_in_cluster (
-        .clk_i     (soc_clk_i),
-        .rst_ni    (rst_ni[extClusterIdx]),
-        .slv_req_i (wide_in_req_i[extClusterIdx]),
-        .slv_resp_o(wide_in_resp_o[extClusterIdx]),
-        .mst_req_o (wide_in_isolated_req[extClusterIdx]),
-        .mst_resp_i(wide_in_isolated_resp[extClusterIdx]),
-        .isolate_i (isolate_i[extClusterIdx]),
-        .isolated_o(isolated_wide_in[extClusterIdx])
-      );
-
       assign isolate_o[extClusterIdx] = isolated_narrow_in[extClusterIdx] &
                                       isolated_narrow_out[2*extClusterIdx+:2] &
-                                      isolated_wide_out[extClusterIdx] &
-                                      isolated_wide_cluster_out[extClusterIdx] &
-                                      isolated_wide_in[extClusterIdx];
+                                      isolated_wide_out[extClusterIdx];
 
     end else begin : gen_no_cluster_iso  // bypass isolate if not required
 
@@ -230,11 +171,6 @@ module chimera_clu_domain
 
       assign wide_out_req_o[extClusterIdx] = wide_out_isolated_req[extClusterIdx];
       assign wide_out_isolated_resp[extClusterIdx] = wide_out_resp_i[extClusterIdx];
-
-      assign wide_cluster_out_req_o[extClusterIdx] = wide_cluster_out_isolated_req[extClusterIdx];
-      assign wide_cluster_out_isolated_resp[extClusterIdx] = wide_cluster_out_resp_i[extClusterIdx];
-      assign wide_in_isolated_req[extClusterIdx] = wide_in_req_i[extClusterIdx];
-      assign wide_in_resp_o[extClusterIdx] = wide_in_isolated_resp[extClusterIdx];
 
       assign isolate_o[extClusterIdx] = '0;
 
@@ -271,12 +207,7 @@ module chimera_clu_domain
         .narrow_out_resp_i(narrow_out_isolated_resp[2*extClusterIdx+:2]),
 
         .wide_out_req_o (wide_out_isolated_req[extClusterIdx]),
-        .wide_out_resp_i(wide_out_isolated_resp[extClusterIdx]),
-
-        .wide_cluster_out_req_o (wide_cluster_out_isolated_req[extClusterIdx]),
-        .wide_cluster_out_resp_i(wide_cluster_out_isolated_resp[extClusterIdx]),
-        .wide_in_req_i          (wide_in_isolated_req[extClusterIdx]),
-        .wide_in_resp_o         (wide_in_isolated_resp[extClusterIdx])
+        .wide_out_resp_i(wide_out_isolated_resp[extClusterIdx])
       );
     end
 

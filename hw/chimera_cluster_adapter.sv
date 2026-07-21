@@ -13,11 +13,6 @@ module chimera_cluster_adapter #(
   parameter int WidePassThroughRegionStart = '0,
   // End address of Memory Island
   parameter int WidePassThroughRegionEnd   = '0,
-  // Cluster address span: wide accesses in this range are kept at full wide
-  // width and steered to the cluster-to-cluster wide crossbar (wide_cluster_out)
-  // instead of being downsized to the narrow interconnect.
-  parameter int WideClusterRegionStart     = '0,
-  parameter int WideClusterRegionEnd       = '0,
   // Add AXI CDC between the cluster and SoC,
   // When this parameter is disabled, you must ensure clu_clk_i = soc_clk_i
   parameter bit EnAxiCdc                   = 1'b0,
@@ -47,11 +42,6 @@ module chimera_cluster_adapter #(
   input  narrow_out_resp_t     [1:0] narrow_out_resp_i,
   output wide_out_req_t              wide_out_req_o,
   input  wide_out_resp_t             wide_out_resp_i,
-  // To/from the cluster-to-cluster wide crossbar (SoC clock domain, id-matched)
-  output wide_out_req_t              wide_cluster_out_req_o,
-  input  wide_out_resp_t             wide_cluster_out_resp_i,
-  input  wide_out_req_t              wide_in_req_i,
-  output wide_out_resp_t             wide_in_resp_o,
   // To Cluster
   output clu_narrow_in_req_t         clu_narrow_in_req_o,
   input  clu_narrow_in_resp_t        clu_narrow_in_resp_i,
@@ -59,9 +49,6 @@ module chimera_cluster_adapter #(
   output clu_narrow_out_resp_t       clu_narrow_out_resp_o,
   input  clu_wide_out_req_t          clu_wide_out_req_i,
   output clu_wide_out_resp_t         clu_wide_out_resp_o,
-  // Inbound wide port to the cluster (cluster clock domain)
-  output wide_out_req_t              clu_wide_in_req_o,
-  input  wide_out_resp_t             clu_wide_in_resp_i,
   // Testing
   input  logic                       wide_mem_bypass_mode_i
 );
@@ -123,18 +110,16 @@ module chimera_cluster_adapter #(
   wide_out_req_t        axi_from_cluster_wide_req;
   wide_out_resp_t       axi_from_cluster_wide_resp;
 
-  // Wide mst is demuxed to memory island, cluster-to-cluster crossbar, rest of SoC
+  // Wide mst is demuxed to memory island and rest of SoC
 
   wide_out_req_t
       axi_from_cluster_wide_premux_req,
       axi_from_cluster_wide_memisl_req,
-      axi_from_cluster_wide_cluster_req,
       axi_from_cluster_wide_to_narrow_req;
 
   wide_out_resp_t
       axi_from_cluster_wide_premux_resp,
       axi_from_cluster_wide_memisl_resp,
-      axi_from_cluster_wide_cluster_resp,
       axi_from_cluster_wide_to_narrow_resp;
 
   // Rest of SoC is width converted from wide to narrow
@@ -150,52 +135,39 @@ module chimera_cluster_adapter #(
   assign axi_from_cluster_narrow_iwc_req   = clu_narrow_out_req_i;
   assign clu_narrow_out_resp_o             = axi_from_cluster_narrow_iwc_resp;
 
-  assign wide_out_req_o                     = axi_from_cluster_wide_memisl_req;
-  assign axi_from_cluster_wide_memisl_resp  = wide_out_resp_i;
+  assign wide_out_req_o                    = axi_from_cluster_wide_memisl_req;
+  assign axi_from_cluster_wide_memisl_resp = wide_out_resp_i;
 
-  assign wide_cluster_out_req_o             = axi_from_cluster_wide_cluster_req;
-  assign axi_from_cluster_wide_cluster_resp = wide_cluster_out_resp_i;
-
-  assign axi_from_cluster_wide_iwc_req      = clu_wide_out_req_i;
-  assign clu_wide_out_resp_o                = axi_from_cluster_wide_iwc_resp;
+  assign axi_from_cluster_wide_iwc_req     = clu_wide_out_req_i;
+  assign clu_wide_out_resp_o               = axi_from_cluster_wide_iwc_resp;
 
 
   // WIDE-TO-NARROW CONVERSION
   // Catch requests over the wide port which do not go to the memory island; reroute them over the narrow AXI bus.
   // For testing purposes, when bypass_mode is asserted, wide requests must be routed over the narrow AXI bus
 
-  // Wide demux target encoding (per address):
-  //   0 -> wide-to-narrow bypass (rest of SoC / testing bypass mode)
-  //   1 -> memory island        (WidePassThroughRegion)
-  //   2 -> cluster-to-cluster   (WideClusterRegion)
-  localparam logic [1:0] WideSelNarrow = 2'd0;
-  localparam logic [1:0] WideSelMemIsl = 2'd1;
-  localparam logic [1:0] WideSelCluster = 2'd2;
-
-  logic [1:0] ar_wide_sel, aw_wide_sel;
-
-  function automatic logic [1:0] wide_target(logic [AddrWidth-1:0] addr);
-    if (wide_mem_bypass_mode_i) return WideSelNarrow;
-    else if ((addr >= WidePassThroughRegionStart) && (addr < WidePassThroughRegionEnd))
-      return WideSelMemIsl;
-    else if ((addr >= WideClusterRegionStart) && (addr < WideClusterRegionEnd))
-      return WideSelCluster;
-    else return WideSelNarrow;
-  endfunction
+  logic ar_wide_sel, aw_wide_sel;
 
   always_comb begin
-    ar_wide_sel = wide_target(axi_from_cluster_wide_premux_req.ar.addr);
-    aw_wide_sel = wide_target(axi_from_cluster_wide_premux_req.aw.addr);
+    if (wide_mem_bypass_mode_i) begin
+      ar_wide_sel = '0;
+      aw_wide_sel = '0;
+    end else begin
+      ar_wide_sel = (axi_from_cluster_wide_premux_req.ar.addr >= WidePassThroughRegionStart) &&
+                    (axi_from_cluster_wide_premux_req.ar.addr < WidePassThroughRegionEnd);
+      aw_wide_sel = (axi_from_cluster_wide_premux_req.aw.addr >= WidePassThroughRegionStart) &&
+                    (axi_from_cluster_wide_premux_req.aw.addr < WidePassThroughRegionEnd);
+    end
   end
 
-  // SoC side wide demux: memory island / cluster crossbar / narrow bypass
+  // SoC side wide demux for bypasses
 
   axi_demux_simple #(
     .AxiIdWidth (SocWideMasterIdWidth),
     .AtopSupport(0),
     .axi_req_t  (wide_out_req_t),
     .axi_resp_t (wide_out_resp_t),
-    .NoMstPorts (3),
+    .NoMstPorts (2),
     .MaxTrans   (16),                    // TODO: Tune this
     .AxiLookBits(SocWideMasterIdWidth),
     .UniqueIds  (0)
@@ -207,10 +179,8 @@ module chimera_cluster_adapter #(
     .slv_aw_select_i(aw_wide_sel),
     .slv_ar_select_i(ar_wide_sel),
     .slv_resp_o     (axi_from_cluster_wide_premux_resp),
-    .mst_reqs_o     ({axi_from_cluster_wide_cluster_req, axi_from_cluster_wide_memisl_req,
-                      axi_from_cluster_wide_to_narrow_req}),
-    .mst_resps_i    ({axi_from_cluster_wide_cluster_resp, axi_from_cluster_wide_memisl_resp,
-                      axi_from_cluster_wide_to_narrow_resp})
+    .mst_reqs_o     ({axi_from_cluster_wide_memisl_req, axi_from_cluster_wide_to_narrow_req}),
+    .mst_resps_i    ({axi_from_cluster_wide_memisl_resp, axi_from_cluster_wide_to_narrow_resp})
   );
 
   // SoC side Wide-to-narrow ID width converter for bypasses
@@ -438,29 +408,6 @@ module chimera_cluster_adapter #(
       .dst_resp_i(axi_from_cluster_wide_premux_resp)
     );
 
-    // AXI Wide CDC from SoC (cluster-to-cluster crossbar) to Cluster
-    axi_cdc #(
-      .aw_chan_t (axi_wide_clu_out_aw_chan_t),
-      .w_chan_t  (axi_wide_clu_out_w_chan_t),
-      .b_chan_t  (axi_wide_clu_out_b_chan_t),
-      .ar_chan_t (axi_wide_clu_out_ar_chan_t),
-      .r_chan_t  (axi_wide_clu_out_r_chan_t),
-      .axi_req_t (wide_out_req_t),
-      .axi_resp_t(wide_out_resp_t),
-      .LogDepth  (3),
-      .SyncStages(2)
-    ) wide_slv_cdc (
-      .src_clk_i (soc_clk_i),
-      .src_rst_ni(rst_ni),
-      .src_req_i (wide_in_req_i),
-      .src_resp_o(wide_in_resp_o),
-
-      .dst_clk_i (clu_clk_i),
-      .dst_rst_ni(rst_ni),
-      .dst_req_o (clu_wide_in_req_o),
-      .dst_resp_i(clu_wide_in_resp_i)
-    );
-
   end else begin : gen_no_axi_cdcs
     // Direct connections if no CDC is needed
     assign narrow_in_resp_o                 = axi_to_cluster_narrow_resp;
@@ -471,9 +418,6 @@ module chimera_cluster_adapter #(
 
     assign axi_from_cluster_wide_premux_req = axi_from_cluster_wide_req;
     assign axi_from_cluster_wide_resp       = axi_from_cluster_wide_premux_resp;
-
-    assign clu_wide_in_req_o                = wide_in_req_i;
-    assign wide_in_resp_o                   = clu_wide_in_resp_i;
   end
 
   // Validate parameters
@@ -484,16 +428,14 @@ module chimera_cluster_adapter #(
   assert property (
      @(posedge clu_clk_i) ((axi_from_cluster_wide_premux_req.aw_valid & wide_mem_bypass_mode_i) |->
           (axi_from_cluster_wide_to_narrow_req.aw_valid &
-           ~axi_from_cluster_wide_memisl_req.aw_valid &
-           ~axi_from_cluster_wide_cluster_req.aw_valid)))
+           ~axi_from_cluster_wide_memisl_req.aw_valid)))
   else $fatal(1, "Bypass Mode ON, but write request routed toward the Wide interconnect");
 
   read_wide_bypass :
   assert property (
      @(posedge clu_clk_i) ((axi_from_cluster_wide_premux_req.ar_valid & wide_mem_bypass_mode_i) |->
         (axi_from_cluster_wide_to_narrow_req.ar_valid &
-         ~axi_from_cluster_wide_memisl_req.ar_valid &
-         ~axi_from_cluster_wide_cluster_req.ar_valid)))
+         ~axi_from_cluster_wide_memisl_req.ar_valid)))
   else $fatal(1, "Bypass Mode ON, but read request routed toward the Wide interocnnect");
 
 

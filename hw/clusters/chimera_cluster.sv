@@ -50,13 +50,7 @@ module chimera_cluster
   //Wide AXI ports
   //-----------------------------
   output wide_out_req_t                               wide_out_req_o,
-  input  wide_out_resp_t                              wide_out_resp_i,
-  // Cluster-to-cluster wide crossbar (outbound: inter-cluster wide requests,
-  // inbound: wide requests targeting this cluster's TCDM)
-  output wide_out_req_t                               wide_cluster_out_req_o,
-  input  wide_out_resp_t                              wide_cluster_out_resp_i,
-  input  wide_out_req_t                               wide_in_req_i,
-  output wide_out_resp_t                              wide_in_resp_o
+  input  wide_out_resp_t                              wide_out_resp_i
 );
 
   `include "axi/typedef.svh"
@@ -127,10 +121,6 @@ module chimera_cluster
   axi_cluster_out_wide_req_t                clu_axi_wide_mst_req;
   axi_cluster_out_wide_resp_t               clu_axi_wide_mst_resp;
 
-  // Cluster-side in wide port (from the cluster-to-cluster crossbar, CDC'd to clu_clk)
-  wide_out_req_t                            clu_axi_wide_in_req;
-  wide_out_resp_t                           clu_axi_wide_in_resp;
-
   // Cluster clk signal after the clk gating cell
   logic                                     clu_clk_gated;
 
@@ -187,8 +177,6 @@ module chimera_cluster
   chimera_cluster_adapter #(
     .WidePassThroughRegionStart(Cfg.MemIslRegionStart),
     .WidePassThroughRegionEnd  (Cfg.MemIslRegionEnd),
-    .WideClusterRegionStart    (ClusterWideRegionStart),
-    .WideClusterRegionEnd      (ClusterWideRegionEnd),
 
     .narrow_in_req_t  (axi_cluster_in_narrow_socIW_req_t),
     .narrow_in_resp_t (axi_cluster_in_narrow_socIW_resp_t),
@@ -225,14 +213,8 @@ module chimera_cluster
 
     .wide_out_req_o     (wide_out_req_o),
     .wide_out_resp_i    (wide_out_resp_i),
-    .wide_cluster_out_req_o (wide_cluster_out_req_o),
-    .wide_cluster_out_resp_i(wide_cluster_out_resp_i),
-    .wide_in_req_i          (wide_in_req_i),
-    .wide_in_resp_o         (wide_in_resp_o),
     .clu_wide_out_req_i (clu_axi_wide_mst_req),
     .clu_wide_out_resp_o(clu_axi_wide_mst_resp),
-    .clu_wide_in_req_o  (clu_axi_wide_in_req),
-    .clu_wide_in_resp_i (clu_axi_wide_in_resp),
 
     .wide_mem_bypass_mode_i(widemem_bypass_i)
   );
@@ -254,8 +236,8 @@ module chimera_cluster
     .narrow_out_resp_t(axi_cluster_out_narrow_resp_t),
     .wide_out_req_t   (axi_cluster_out_wide_req_t),
     .wide_out_resp_t  (axi_cluster_out_wide_resp_t),
-    .wide_in_req_t    (wide_out_req_t),
-    .wide_in_resp_t   (wide_out_resp_t)
+    .wide_in_req_t    (axi_cluster_in_wide_req_t),
+    .wide_in_resp_t   (axi_cluster_in_wide_resp_t)
   ) i_test_cluster (
 
     .clk_i          (clu_clk_gated),
@@ -276,8 +258,8 @@ module chimera_cluster
     .narrow_in_resp_o (clu_axi_adapter_slv_resp),
     .narrow_out_req_o (clu_axi_adapter_mst_req),
     .narrow_out_resp_i(clu_axi_adapter_mst_resp),
-    .wide_in_req_i    (clu_axi_wide_in_req),
-    .wide_in_resp_o   (clu_axi_wide_in_resp),
+    .wide_in_req_i    ('0),
+    .wide_in_resp_o   (),
     .wide_out_req_o   (clu_axi_wide_mst_req),
     .wide_out_resp_i  (clu_axi_wide_mst_resp),
 
