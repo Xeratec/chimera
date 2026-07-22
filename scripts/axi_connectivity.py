@@ -98,6 +98,9 @@ def main():
     cwx_m = W(cwxbar, "slv")       # cluster -> cluster<->cluster wide xbar (id 2)
     cwx_s = W(cwxbar, "mst")       # cluster xbar -> inbound iw             (id 5)
     has_cwx = cwxbar is not None   # is the cluster-to-cluster wide xbar present in this design?
+    # AXI clock-domain crossings present? (EnAxiCdc; absent when cluster runs at soc clk)
+    has_cdc = find(rows, C, "axi_cdc_src") is not None
+    cdc_tag = " + cdc" if has_cdc else ""
     # number of identical clusters (from the extraction) for the "xN" boundary labels
     ncl = len({m.group(1) for r in rows
                if (m := re.search(r"gen_clusters\[(\d+)\]", r["path"]))}) or 5
@@ -130,12 +133,12 @@ def main():
         N(s, d, "slave", "soc")
 
     # ---------------- cluster boundary converters ----------------
-    N("a_nslv", f"narrow-slv adapter\\ncdc + iw ({cid(iw_nslv)})", "conv", "clus")
-    N("a_nmst", f"narrow-mst adapter\\niw ({cid(iw_nmst)}) + cdc", "conv", "clus")
-    N("a_wmst", f"wide-mst adapter\\niw ({cid(iw_wmst)}) + cdc", "conv", "clus")
+    N("a_nslv", f"narrow-slv adapter\\niw ({cid(iw_nslv)}){cdc_tag}", "conv", "clus")
+    N("a_nmst", f"narrow-mst adapter\\niw ({cid(iw_nmst)}){cdc_tag}", "conv", "clus")
+    N("a_wmst", f"wide-mst adapter\\niw ({cid(iw_wmst)}){cdc_tag}", "conv", "clus")
     N("a_w2n", f"wide->narrow\\niw ({cid(iw_w2n)}) + dw ({cdw(dw)})", "conv", "clus")
     if has_cwx:
-        N("a_win", f"wide-in path\\niw ({cid(cw_iw)}) + cdc", "conv", "clus")
+        N("a_win", f"wide-in path\\niw ({cid(cw_iw)}){cdc_tag}", "conv", "clus")
 
     # ---------------- cluster narrow domain ----------------
     N("cores", "Snitch cores\\n(data)", "master", "cnar")
@@ -224,7 +227,8 @@ def main():
     # one Snitch cluster instance: adapter boundary + narrow domain + wide/DMA domain nested inside
     out.append(f'  subgraph cluster_snitch {{ label="Snitch cluster  (x{ncl}, identical)"; '
                'style=filled; color="#8a8ab5"; fillcolor="#e8eaf6"; penwidth=2;')
-    out += emit_box("clus", "adapter boundary (CDC + ID/width conv)", "#eef2ff", 4)
+    out += emit_box("clus", f"adapter boundary ({'CDC + ' if has_cdc else ''}ID/width conv)",
+                    "#eef2ff", 4)
     out += emit_box("cnar", "narrow domain (control)", "#eefaee", 4)
     out += emit_box("cwide", "wide / DMA domain", "#fff6ea", 4)
     out.append("  }")
