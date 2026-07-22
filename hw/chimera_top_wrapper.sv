@@ -338,14 +338,15 @@ module chimera_top_wrapper
     .data_o(snitch_bootrom_data)
   );
 
+  // Per-cluster SoC-control outputs. Indexed by cluster, sized by ExtClusters so
+  // this tracks the configured cluster count (and the SystemRDL-generated reg
+  // block width) instead of a hardcoded maximum.
   logic [ExtClusters-1:0] wide_mem_bypass_mode;
-  assign wide_mem_bypass_mode = {
-    chimera_hwif_out.wide_mem_cluster_bypass[4].value.value,
-    chimera_hwif_out.wide_mem_cluster_bypass[3].value.value,
-    chimera_hwif_out.wide_mem_cluster_bypass[2].value.value,
-    chimera_hwif_out.wide_mem_cluster_bypass[1].value.value,
-    chimera_hwif_out.wide_mem_cluster_bypass[0].value.value
-  };
+  always_comb begin
+    for (int unsigned i = 0; i < ExtClusters; i++) begin
+      wide_mem_bypass_mode[i] = chimera_hwif_out.wide_mem_cluster_bypass[i].value.value;
+    end
+  end
 
   logic [ExtClusters-1:0] cluster_clock_gate_en;
   // This is the enable clk gate, i.e.
@@ -353,24 +354,20 @@ module chimera_top_wrapper
   // - enable = 0 -> clock is running (on)
   // It will be used to drive the actual clk eneable signal in each cluster.
   // For this reason it's inverted when connected to the cluster.
-  assign cluster_clock_gate_en = {
-    chimera_hwif_out.cluster_clk_gate_en[4].value.value,
-    chimera_hwif_out.cluster_clk_gate_en[3].value.value,
-    chimera_hwif_out.cluster_clk_gate_en[2].value.value,
-    chimera_hwif_out.cluster_clk_gate_en[1].value.value,
-    chimera_hwif_out.cluster_clk_gate_en[0].value.value
-  };
+  always_comb begin
+    for (int unsigned i = 0; i < ExtClusters; i++) begin
+      cluster_clock_gate_en[i] = chimera_hwif_out.cluster_clk_gate_en[i].value.value;
+    end
+  end
 
 
   logic [ExtClusters-1:0] cluster_rst_n;
   logic [ExtClusters-1:0] cluster_soft_rst_n;
-  assign cluster_soft_rst_n = {
-    ~chimera_hwif_out.reset_cluster[4].value.value,
-    ~chimera_hwif_out.reset_cluster[3].value.value,
-    ~chimera_hwif_out.reset_cluster[2].value.value,
-    ~chimera_hwif_out.reset_cluster[1].value.value,
-    ~chimera_hwif_out.reset_cluster[0].value.value
-  };
+  always_comb begin
+    for (int unsigned i = 0; i < ExtClusters; i++) begin
+      cluster_soft_rst_n[i] = ~chimera_hwif_out.reset_cluster[i].value.value;
+    end
+  end
 
   // The Rst used for each cluster is the AND gate among all different source of rst in the system that are:
   // - rst_ni: Global asynchronous reset coming from the PAD

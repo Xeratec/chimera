@@ -24,7 +24,7 @@ RDL_TOP      ?= $(RDL_DIR)/chimera_addrmap.rdl
 RDL_REGS     ?= $(RDL_DIR)/chimera_soc_regs.rdl
 RDL_REG_OUT  ?= $(CHIM_ROOT)/hw/regs
 DOCS_ADDRMAP ?= $(CHIM_ROOT)/docs/addressmap.md
-NUMCLUSTERS  ?= 5
+NUMCLUSTERS  ?= $(shell grep -oE 'nr_clusters:[[:space:]]*[0-9]+' $(CHIM_ROOT)/cfg/chimera.json | grep -oE '[0-9]+')
 
 # --- Snitch cluster SW headers (RTL clustergen) ------------------------------
 # The Snitch bootrom needs the cluster config (CFG_CLUSTER_NR_CORES /
