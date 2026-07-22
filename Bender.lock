@@ -277,7 +277,7 @@ packages:
     - axi_stream
     - common_cells
   snitch_cluster:
-    revision: c9cc25849984bf4589698d950e9f79a0631792b9
+    revision: bd5c8685ae42359464bd592a32fd301d1b32deb2
     version: null
     source:
       Git: https://github.com/xeratec/snitch_cluster.git
