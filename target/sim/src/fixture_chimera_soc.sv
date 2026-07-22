@@ -22,7 +22,7 @@ module fixture_chimera_soc #(
 
   localparam chimera_cfg_t DutCfg = ChimeraCfg[SelectedCfg];
   localparam cheshire_cfg_t ChsCfg = DutCfg.ChsCfg;
-  localparam time ClkPeriodClu = 2ns;
+  localparam time ClkPeriodClu = 5ns;
   localparam time ClkPeriodSys = 5ns;
 
   `CHESHIRE_TYPEDEF_ALL(, ChsCfg)

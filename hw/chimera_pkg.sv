@@ -42,7 +42,7 @@ package chimera_pkg;
       hasWideMasterPort: {1'b1, 1'b1, 1'b1, 1'b1, 1'b1},
       NrCores: {8'h9, 8'h9, 8'h9, 8'h9, 8'h9},
       ClusterType: {SNITCH, SNITCH, SNITCH, SNITCH, SNITCH},
-      EnAxiCdc: {1'b1, 1'b1, 1'b1, 1'b1, 1'b1}
+      EnAxiCdc: {1'b0, 1'b0, 1'b0, 1'b0, 1'b0}
   };
 
   function automatic int _sumVector(byte_bt [iomsb(ExtClusters):0] vector, int vectorLen);
