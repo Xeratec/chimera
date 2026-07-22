@@ -23,7 +23,7 @@ MEMORY
   cluster_zeromem_2 (rw) : ORIGIN = 0x40430000, LENGTH = 0x00010000
   cluster_zeromem_3 (rw) : ORIGIN = 0x40630000, LENGTH = 0x00010000
   cluster_zeromem_4 (rw) : ORIGIN = 0x40830000, LENGTH = 0x00010000
-  mem_island (rw) : ORIGIN = 0x48000000, LENGTH = 0x00080000
+  mem_island (rw) : ORIGIN = 0x48000000, LENGTH = 0x00100000
   hyperram (rw) : ORIGIN = 0x80000000, LENGTH = 0x100000000
 }
 
@@ -145,7 +145,7 @@ PROVIDE(__cluster_zeromem_4_base_addr__ = 0x40830000);
 PROVIDE(__cluster_zeromem_size__ = 0x00010000);
 
 PROVIDE(__mem_island_base_addr__ = 0x48000000);
-PROVIDE(__mem_island_size__ = 0x00080000);
+PROVIDE(__mem_island_size__ = 0x00100000);
 
 PROVIDE(__hyperram_base_addr__ = 0x80000000);
 PROVIDE(__hyperram_size__ = 0x100000000);

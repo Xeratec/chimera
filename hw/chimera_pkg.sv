@@ -126,20 +126,20 @@ ExtClusters
 
   // Memory Island
   localparam byte_bt MemIslandIdx = ClusterIdx[ExtClusters-1] + 1;
-  // WIESEP: Address space 512 KiB
-  localparam doub_bt MemIslRegionLength = 64'h8_0000;
+  // WIESEP: Address space 1024 KiB
+  localparam doub_bt MemIslRegionLength = 64'h10_0000;
   localparam doub_bt MemIslRegionStart = 64'h4800_0000;
   localparam doub_bt MemIslRegionEnd = MemIslRegionStart + MemIslRegionLength;
 
   // Size of memory island: MemIslNumWideBanks * MemIslNarrowToWideFactor * MemIslWordsPerBank * <BytesPerWord>
   // with BytesPerWord = cfg.AxiDataWidth / 8
   localparam aw_bt MemIslAxiMstIdWidth = 1;
-  localparam byte_bt MemIslNarrowToWideFactor = 16;  // 32 bit (narrow) vs. 512 bit (wide)
+  localparam byte_bt MemIslNarrowToWideFactor = 8;  // 64 bit (narrow) vs. 512 bit (wide)
   localparam byte_bt MemIslNarrowPorts = 1;
   localparam byte_bt MemIslWidePorts = $countones(ChimeraClusterCfg.hasWideMasterPort);
   localparam byte_bt MemIslNumWideBanks = 2;
-  localparam shrt_bt MemIslWordsPerBank = 1024;
-  // WIESEP: Memory Island size = 16 * 2 * 4096 * 32 bit = 512 KB
+  localparam shrt_bt MemIslWordsPerBank = 8192;
+  // WIESEP: Memory Island size = 2 * 8 * 8192 * 64 bit = 1024 KB
 
 
   localparam doub_bt HyperbusRegionLength = 64'h1_0000_0000;
@@ -185,8 +185,9 @@ ExtClusters
     cfg.LlcOutRegionEnd   = HyperbusRegionEnd;
 
     // AXI CFG
-    cfg.AxiMstIdWidth = 2;
+    cfg.AxiMstIdWidth = 2; // Serialize CVA6 from 4 to 2 bits
     cfg.AxiDataWidth = 64;
+    cfg.AxiUserWidth = 2;
     cfg.AddrWidth = 48;
     cfg.LlcOutRegionEnd = 'hFFFF_FFFF;
 

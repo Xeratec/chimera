@@ -44,11 +44,11 @@ addrmap chimera_addrmap #(
     // Real per-cluster map from the snitch_cluster dependency.
     snitch_cluster cluster[NrClusters] @ 0x40000000 += ClusterStride;
 
-    // --- Shared memory island (512 KiB) ---
-    external mem { mementries = 0x20000; memwidth = 32;
-        desc = "Shared multi-banked memory island (512 KiB)"; } mem_island @ 0x48000000;
+    // --- Shared memory island (1024 KiB) ---
+    external mem { mementries = 0x20000; memwidth = 64;
+        desc = "Shared multi-banked memory island (1024 KiB)"; } mem_island @ 0x48000000;
 
     // --- Off-chip HyperRAM (4 GiB window) ---
-    external mem { mementries = 0x40000000; memwidth = 32;
+    external mem { mementries = 0x20000000; memwidth = 64;
         desc = "Off-chip HyperRAM via HyperBus (4 GiB window)"; } hyperram @ 0x80000000;
 };

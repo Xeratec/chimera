@@ -219,43 +219,6 @@ module chimera_cluster
     .wide_mem_bypass_mode_i(widemem_bypass_i)
   );
 
-  typedef struct packed {
-    logic [2:0] ema;
-    logic [1:0] emaw;
-    logic [0:0] emas;
-  } sram_cfg_t;
-
-  typedef struct packed {
-    sram_cfg_t icache_tag;
-    sram_cfg_t icache_data;
-    sram_cfg_t tcdm;
-  } sram_cfgs_t;
-
-  // ----------------
-  // |   TCDM INTF   |
-  // ----------------
-  localparam int unsigned TcdmSize = 128;
-  localparam aw_bt TcdmAddrWidth = $clog2(TcdmSize * 1024);
-  typedef logic [WideDataWidth-1:0] data_dma_t;
-  typedef logic [WideDataWidth/8-1:0] strb_dma_t;
-  typedef logic [TcdmAddrWidth-1:0] tcdm_addr_t;
-  `TCDM_TYPEDEF_ALL(tcdm_dma, tcdm_addr_t, data_dma_t, strb_dma_t, logic)
-
-  function automatic snitch_pma_pkg::rule_t [snitch_pma_pkg::NrMaxRules-1:0] get_cached_regions();
-    automatic snitch_pma_pkg::rule_t [snitch_pma_pkg::NrMaxRules-1:0] cached_regions;
-    cached_regions = '{default: '0};
-    cached_regions[0] = '{base: HyperbusRegionStart, mask: 48'hffff_1000_0000}; // Hyperbus (256 MiB)
-    cached_regions[1] = '{base: MemIslRegionStart, mask: 48'hffff_fff8_0000}; // Memory Island ( 512 KiB)
-    return cached_regions;
-  endfunction
-
-  localparam snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{
-      NrCachedRegionRules: 2,
-      CachedRegion: get_cached_regions(),
-      default: 0
-  };
-
-
   snitch_cluster_wrapper #(
     // Widths, AXI/SRAM struct types and the PMA config are driven from the
     // Chimera/Cheshire integration; everything else (NrCores, TCDM, ICache, FP
@@ -266,8 +229,6 @@ module chimera_cluster
     .WideDataWidth    (WideDataWidth),
     .NarrowIdWidthIn  (ClusterNarrowAxiMstIdWidth),
     .WideIdWidthIn    (WideMasterIdWidth),
-    .NarrowUserWidth  (Cfg.ChsCfg.AxiUserWidth),
-    .WideUserWidth    (Cfg.ChsCfg.AxiUserWidth),
 
     .narrow_in_req_t  (axi_cluster_in_narrow_req_t),
     .narrow_in_resp_t (axi_cluster_in_narrow_resp_t),
@@ -276,13 +237,7 @@ module chimera_cluster
     .wide_out_req_t   (axi_cluster_out_wide_req_t),
     .wide_out_resp_t  (axi_cluster_out_wide_resp_t),
     .wide_in_req_t    (axi_cluster_in_wide_req_t),
-    .wide_in_resp_t   (axi_cluster_in_wide_resp_t),
-    .tcdm_dma_req_t   (tcdm_dma_req_t),
-    .tcdm_dma_rsp_t   (tcdm_dma_rsp_t),
-    .sram_cfg_t       (sram_cfg_t),
-    .sram_cfgs_t      (sram_cfgs_t),
-
-    .SnitchPMACfg     (SnitchPMACfg)
+    .wide_in_resp_t   (axi_cluster_in_wide_resp_t)
   ) i_test_cluster (
 
     .clk_i          (clu_clk_gated),

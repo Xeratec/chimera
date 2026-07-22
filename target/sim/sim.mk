@@ -99,6 +99,7 @@ chim-run-batch: ## Run simulation in command line mode (read-only opt snapshot; 
 .PHONY: chim-sim-clean
 chim-sim-clean: ## Clean RTL simulation files
 	@rm -rf $(VSIM_WORK)
+	@rm -rf $(VSIM_DIR)/runs
 	@rm -rf $(VSIM_DIR)/transcript
 	@rm -f $(VSIM_DIR)/compile.tcl
 
