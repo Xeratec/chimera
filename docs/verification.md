@@ -1,95 +1,106 @@
 # Verification
 
-This document describes the **current** simulation/test flow and the **planned** verification
-framework. The framework work is tracked in `../TODO.md`.
+This document describes the simulation/test flow: a `chimera-sdk` CMake/ctest build whose cases are
+discovered and run by a thin **pytest** front-end, with the RTL simulation driven by QuestaSim. The
+goal is that the *same* `make chim-test` runs locally and in CI (the CI YAML migration is still
+pending — see *CI* below).
 
-## Current flow
+## Overview
+
+```
+make chim-test
+   │  (re-configures the SDK in sim mode, rebuilds the ELFs, then:)
+   └─ pytest  test/                         test/{conftest.py,test_soc.py}
+        │  discovers ctest cases via `ctest --show-only=json-v1`
+        └─ ctest -R <case>                  sw/deps/chimera-sdk/build/CTestTestfile.cmake
+             │  each case = SOC_MODEL_BINARY on one unified ELF
+             └─ scripts/sim_runner.sh +BINARY=<unified.elf> +PRELMODE=3
+                  └─ make chim-run-batch    → QuestaSim (vsim -c) on tb_chimera_soc
+```
 
 Simulator: **QuestaSim/vsim only** (`iis-env.sh` pins questa-2022.3; compilation is Bender-driven
-via `bender script vsim`).
+via `bender script vsim`). `sim_runner.sh` sources `iis-env.sh` itself if `vsim` is not already on
+the path.
 
-Testbench (`target/sim/src/`):
+## Building the software and registering the tests
 
-- `tb_chimera_soc.sv` — top TB. Reads plusargs `BOOTMODE`, `PRELMODE`, `BINARY`, `IMAGE`.
-  Preload modes: JTAG (0), UART (2), **FAST DEBUG (3, default)** which force-writes ELF sections
-  directly into memory-island SRAM by hierarchical path, then polls end-of-computation.
-- `fixture_chimera_soc.sv` — DUT + clocks (`ClkPeriodClu=2ns`, `ClkPeriodSys=5ns`) + VIP.
-- `vip_chimera_soc.sv` — JTAG riscv-dbg driver + tasks (`jtag_init/elf_run/halt/resume/
-  wait_for_eoc`, EOC from `CHESHIRE_SCRATCH_2`), UART model/printer, I²C EEPROM, SPI flash, and
-  HyperRAM models with `$sdf_annotate`.
-- `tb_chimera_pkg.sv` — a sim-side config array (separate from `chimera_pkg::ChimeraCfg`).
-
-How a test runs today:
+The SoC software is the `chimera-sdk` submodule (`sw/deps/chimera-sdk`), built with LLVM +
+picolibc inside a toolchain container (`scripts/sdk_container.sh`, Singularity or Docker). Test
+ELFs are produced by the SDK's CMake flow, one **unified ELF** per test (host + device domains
+merged), landing in `sw/deps/chimera-sdk/build/tests/<suite>/<test>/…_unified.elf`.
 
 ```sh
-make chim-sw
-make chim-run-batch BINARY=sw/tests/testClusterOffload.memisl.elf VSIM_FLAGS="-l t.transcript"
-./scripts/vsim_ret_error.sh t.transcript      # greps "Errors: N", nonzero if N>0
+make chim-sw               # configure + build the SDK (chimera-gen target)
+make chim-test-configure   # re-configure with TEST_MODE=simulation → registers one ctest case/test
 ```
 
-CI (`.gitlab-ci.yml`) runs `init-deps → vsim-build → vsim-test`, where `vsim-test` is a fixed
-`parallel:matrix` over `{testCluster, testClusterOffload, testMemBypass, testPeripheralsGating,
-testHyperbusAddr, testCfgBootAddr}`, each invoked as above.
+`chim-test-configure` sets `SOC_MODEL_BINARY=scripts/sim_runner.sh` and `PRELOAD_MODE=3`, so each
+`add_test()` becomes a case that runs its unified ELF in the chimera-top testbench.
 
-### Limitations
+## Running the tests
 
-- Pass/fail is *grep the transcript* — no structured result, no per-assertion reporting.
-- The test list lives only in CI YAML → **cannot be reproduced locally** with one command.
-- No golden-model / data-output verification.
-- Single simulator; no GVSoC path.
-
-## Planned framework
-
-Design goals: (1) the **exact same test runs locally and in CI**; (2) structured, browsable
-reporting; (3) a declarative test registry; (4) built on top of the `chimera-sdk` CMake/ctest
-build (see `sdk-integration.md`).
-
-**Chosen tooling: `pytest` as the single top-level runner.** CI (`.gitlab-ci.yml` / GitHub
-Actions) does nothing but call `pytest`; so does the developer. Rationale:
-
-- `@pytest.mark.parametrize` expresses the test matrix `(binary, backend, prelmode, expected)` in
-  Python — this replaces the CI-only YAML matrix and is the *locally runnable* equivalent of
-  Gwaihir's `parallel:matrix` registry.
-- fixtures model "build ELFs once (session), launch a sim per test, tear down cleanly".
-- `--junitxml` + `pytest-html` give CI-consumable and browsable reports from one run.
-- markers (`-m hyperbus`, `-m offload`, `-m "not slow"`) select subsets.
-- `pytest-xdist` parallelizes locally, matching CI throughput.
-
-**Layering:** keep `ctest` (already partially wired in chimera-sdk via `add_test` when
-`TEST_MODE=simulation`) as the thin CMake-native registration; pytest is the orchestration +
-reporting layer on top (it can shell out to `ctest -R <name>` or invoke the sim directly).
-
-**Result contract (adopt from Gwaihir):** the testbench prints a canonical `] SUCCESS` / a
-`return code N`, and a single shared checker interprets it (success string / expected nonzero
-exit / optional UART match / fail on any `Fatal:`/`Error:`). For data-heavy kernels, dump memory
-and run a Python `verify.py` subclassing one shared `Verifier` (`get_expected`/`get_actual`).
-
-> Runner performance is intentionally not a selection criterion — wall-clock is dominated by the
-> RTL/GVSoC simulation, so a faster (e.g. Rust) runner would not move the needle and would leave
-> the toolchain (Python/uv/CMake) fragmented.
-
-### Sketch
-
-```
-tests/
-├── conftest.py          # fixtures: build session, sim launcher, transcript parser
-├── registry.py          # TEST_MATRIX = [(elf, backend, prelmode, expected), ...]
-└── test_soc.py          # @parametrize over registry -> launch sim -> assert on result
+```sh
+make chim-test                       # configure(sim) + build + pytest over all cases
+make chim-test VERBOSE=1             # -v -s, live vsim streaming
+make chim-test JOBS=4                # pytest-xdist: 4 sims in parallel
+make chim-test PYTEST_EXTRA="-m host"        # only host cases  (marker: host)
+make chim-test PYTEST_EXTRA="-k snitchCluster"
+make chim-test-ctest                 # run the suite directly via ctest (no pytest layer)
+make chim-test SIM_TIMEOUT=300       # override the default per-test wall-clock timeout (s)
 ```
 
-```yaml
-# .gitlab-ci.yml (and mirrored GitHub workflow) — the entire test stage:
-test:
-  script:
-    - pytest --junitxml=report.xml
-  artifacts:
-    reports: { junit: report.xml }
+Run a single case directly with ctest (useful while debugging one test):
+
+```sh
+SIM_TIMEOUT=600 ctest --test-dir sw/deps/chimera-sdk/build \
+    -R '^test_host_returnZero$' --output-on-failure -V
 ```
 
-## Migration path
+### Markers and per-test timeouts
 
-1. Land `chimera-sdk` integration (SW builds via CMake, ELFs land in `build/bin/`).
-2. Migrate the 8 tests (+ a new iDMA test) into SDK test dirs.
-3. Add the pytest harness + registry; wire the shared result contract into the TB.
-4. Replace the CI `vsim-test` matrix and `scripts/vsim_ret_error.sh` with a single `pytest` call.
-5. (Optional) add a second simulator and/or a GVSoC backend behind the same `backend` param.
+`test/conftest.py` assigns `host` / `cluster` markers by name (`snitchCluster` → `cluster`,
+otherwise `host`) and holds a `SIM_TIMEOUT_OVERRIDES` map for the legitimately-slow tests
+(`snitchCluster/snrt` 3600 s — host-forwarded syscall printf; `snitchCluster/matmul` and
+`snitchCluster/offloadAll` 1800 s; `host/uartSimple` 1800 s). Tests not in the map use
+`--sim-timeout` (default 300 s). The runner enforces the timeout as a wall-clock watchdog
+(`SIM_TIMEOUT` in `sim_runner.sh`): it kills the sim and reaps any orphaned `vsim` if a run never
+reaches end-of-computation.
+
+## Result contract
+
+`scripts/sim_runner.sh` decides pass/fail from the transcript. A test passes **iff** the testbench
+
+- printed `] SUCCESS`,
+- hit no `Fatal:`, and
+- reported `Errors: 0`.
+
+Per-test run directories (`target/sim/vsim/runs/<test>/`) isolate the tracer output
+(`trace_hart_*`, `dma_trace_*`, `transcript`), which is what makes parallel runs (`JOBS=`/`-j`)
+safe — `chim-run-batch` uses a read-only optimized snapshot.
+
+## Test inventory
+
+Tests live in `sw/deps/chimera-sdk/tests/`. Which suites/tests are enabled depends on the
+configured `TARGET_PLATFORM` (`chimera-gen`). The registered ctest cases are:
+
+| Suite | Cases |
+|-------|-------|
+| `host` (CVA6 only) | `returnZero`, `printf`, `alloc`, `picolibc`, `uartSimple`, `hyperbus` |
+| `snitchCluster` (generic) | `simpleOffload`, `offloadAll`, `clusterMemory`, `memoryIsland`, `bootAddrConfig`, `clusterGating`, `idma`, `hyperbus`, `matmul`, `snrt` |
+
+## CI
+
+The design intent is that the CI test stage is a single `make chim-test` (one `pytest` invocation
+emitting JUnit/HTML), identical to the locally-run command. **This migration is not yet done:** the
+current `.gitlab-ci.yml` still runs the retired `vsim-test` `parallel:matrix` over the old
+`sw/tests/*.memisl.elf` binaries and greps the transcript with `scripts/vsim_ret_error.sh`. Those
+binaries were removed with the SDK adoption, so replacing the CI matrix (and `vsim_ret_error.sh`)
+with `make chim-test` is a tracked TODO (see `../TODO.md`).
+
+## Limitations / future work
+
+- Pass/fail is transcript-driven (`] SUCCESS` / `Errors: 0`); there is no per-assertion reporting
+  and no golden-model data verification for compute kernels yet.
+- Single simulator (Questa); a GVSoC backend is available in the SDK (`HARDWARE_BACKEND=GVSoC`)
+  but not yet wired behind the same pytest `backend` param.
+- Replace the CI `vsim-test` matrix + `scripts/vsim_ret_error.sh` with one `make chim-test`.

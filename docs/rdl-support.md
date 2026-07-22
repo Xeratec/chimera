@@ -29,7 +29,7 @@ peakrdl flow in its makefiles.
 | register_interface | ❌ | ❌ | Bus IP; no memory-mapped register block. |
 | axi | ❌ | ❌ | Bus IP; no register block. |
 | idma | ❌ (uses reggen `*.hjson`) | via cluster | iDMA config regs are reggen-generated inside the cluster; exposed through the cluster peripheral region, not as standalone RDL. |
-| memory_island | ❌ | as `external mem` | Modeled in the top map as the 512 KiB `mem_island` window at `0x4800_0000` (no register block to describe). |
+| memory_island | ❌ | as `external mem` | Modeled in the top map as the 1 MiB `mem_island` window at `0x4800_0000` (no register block to describe). |
 | apb | ❌ | ❌ | Bus IP. |
 | hyperbus | ❌ (reggen) | as `external mem` | HyperBus config regs modeled as the `hyperbus_cfg` window at `0x3000_5000`; the off-chip HyperRAM as the `hyperram` window at `0x8000_0000`. Register fields not yet described in RDL. |
 | common_cells | ❌ | ❌ | Utility cells; no registers. |

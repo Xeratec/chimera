@@ -1,15 +1,17 @@
 # chimera-sdk Integration
 
-Goal: add **chimera-sdk** as a git submodule and retire the hand-written `sw/` layer
-(`sw/lib/offload.c`, `sw/include/*`, `sw/link/*`, and the 8 tests), so chimera-top (and later the
-downstream closed project) share one SW SDK. Tracked in `../TODO.md`.
+The SoC software is provided by **chimera-sdk**, added as a git submodule at
+`sw/deps/chimera-sdk`. It replaces the retired hand-written `sw/` layer (the old
+`sw/lib/offload.c`, `sw/include/*`, `sw/link/*`, and the `sw/tests/*.c`). chimera-top keeps its
+Bender/Make **hardware** flow; the SDK owns **all software** via its own CMake build.
 
 ## What chimera-sdk is
 
-A newer, **CMake-first** bare-metal SW platform for Chimera-architecture SoCs (LLVM 18.1.4-pulp +
+A **CMake-first** bare-metal SW platform for Chimera-architecture SoCs (LLVM 18.1.4-pulp +
 picolibc, *not* GCC/newlib). Its headline feature is a **multi-binary compilation flow**: one ELF
 per execution domain (host + each device), so RV64 host and RV32 Snitch code no longer share a
-common-denominator ISA.
+common-denominator ISA. For simulation the domains are merged into one **unified ELF** per test
+(`CHIMERA_UNIFIED_ELF=ON`), which the fast-debug preload path force-writes into the memory island.
 
 Key pieces:
 
@@ -17,74 +19,66 @@ Key pieces:
   absolute-address symbol stubs + a placement `.ldh`) and `add_host_binary()` (compile the host
   ELF, link the device symbol stubs, chain placement, optionally merge into one unified ELF).
 - `targets/<platform>/` — per-SoC config: `config.cmake` (ISA/ABI), linker templates, crt0,
-  register maps, and the `chimera_shared_data_t` `.common` layout. **`chimera-open` already
-  matches chimera-top** (host `rv64imafdc/lp64d`, cluster `rv32imafd_xdma/ilp32d`, memisl at
-  `0x4800_0000`).
+  register maps, and the `chimera_shared_data_t` `.common` layout.
 - `host/` — HAL (`device_api`, `interrupt_api`), drivers (cluster offload, uart_apb, clint32,
   hyperbus), runtime (alloc/clint/fll/uart/log), OpenTitan peripherals.
 - `devices/snitch_cluster/` — cluster runtime + the `snitch-sdk` (SNRT) submodule.
-- `tests/` — per-test dirs (`src_host/` + `src_cluster/` + `CMakeLists.txt`); the canonical
-  example is `tests/snitchCluster/simpleOffload`.
-- Build flavors via `HARDWARE_BACKEND` = `RTL` | `GVSoC` | `ASIC`; run via `ctest`
-  (`TEST_MODE=simulation`, RTL) or `scripts/run_tests.sh` (GVSoC/ASIC).
+- `tests/` — per-test dirs (`src_host/` + optional `src_cluster/` + `CMakeLists.txt`).
+- Build flavors via `HARDWARE_BACKEND` = `RTL` | `GVSoC` | `ASIC`.
+
+## Target platform: `chimera-gen`
+
+chimera-top builds against the **`chimera-gen`** target (`CHIM_SDK_TARGET_PLATFORM` in `sw/sw.mk`),
+which matches this SoC's config (5 clusters × 9 cores, `SNITCH` cluster type, host
+`rv64imafdc/lp64d`, cluster `rv32imafd_xdma/ilp32d`, memisl at `0x4800_0000`). The `chimera-gen`
+target consumes the SystemRDL-generated address/register headers (see `chim-rdl-sdk-headers`),
+which is why `chim-sw-configure` has an order-only dependency on `chim-rdl`. The SDK also ships
+`chimera-open` and `chimera-convolve` targets.
 
 ## How the offload model maps
 
-| chimera-top today | chimera-sdk |
-|-------------------|-------------|
-| Host + "device" functions in one memisl ELF, offloaded by function pointer | Separate host + device ELFs, chained by placement `.ldh`, sharing a `.common` section |
+| old chimera-top `sw/` | chimera-sdk |
+|-----------------------|-------------|
+| Host + "device" functions in one memisl ELF, offloaded by function pointer | Separate host + device ELFs, chained by placement `.ldh`, sharing a `.common` section (merged to a unified ELF for sim) |
 | `sw/lib/offload.c` HAL | `host/drivers/cluster/offload_snitchCluster.c` |
-| `sw/include/soc_addr_map.h`, `regs/soc_ctrl.h` | `targets/chimera-open/shared/inc/*` |
-| `sw/link/memisl.ld`, `common.ldh` | `targets/chimera-open/{host,devices}/link.ld.in`, `shared/common.ldh` |
+| `sw/include/soc_addr_map.h`, `regs/soc_ctrl.h` | `targets/chimera-gen/shared/inc/*` + SystemRDL-generated headers (see `chim-rdl-sdk-headers`) |
+| `sw/link/memisl.ld`, `common.ldh` | `targets/chimera-gen/{host,devices}/link.ld.in`, `shared/common.ldh` |
 | GCC/newlib, rv64gc | LLVM/picolibc, per-domain ISA/ABI |
 
-## Integration steps
+## Build flow (from the top repo)
 
-1. **Add submodule**: `git submodule add <chimera-sdk url> sw/sdk` (or top-level `chimera-sdk/`).
-   The SDK has **nested** submodules (`snitch-sdk`, `opentitan_peripherals`) → always
-   `git submodule update --init --recursive`.
-2. **Toolchain**: provide `TOOLCHAIN_DIR` (LLVM) + `PICOLIBC_DIR`. Easiest via the SDK container
-   image (below); alternatively `make llvm` / `make picolibc-multilib` in the SDK.
-3. **Ensure `uv` is available** — SDK post-build steps (section-overlap check, unified-ELF merge
-   via `lief`) shell out to `uv run python`.
-4. **Adopt/extend the `chimera-open` target** for chimera-top (verify address map, register
-   headers, ISA/ABI, `chimera_shared_data_t` match the RTL). Add a new `targets/<name>/` only if
-   chimera-top diverges from `chimera-open`.
-5. **Migrate the 8 tests** into SDK test dirs (host `src_host/` + device `src_cluster/`), plus a
-   **new iDMA test** (current coverage gap):
-   testReturnZero, testCluster, testClusterOffload, testClusterGating, testCfgBootAddr,
-   testHyperbusAddr, testMemBypass, testPeripheralsGating.
-6. **Wire simulation**: pass chimera-top's compiled RTL model as the SDK's `SOC_MODEL_BINARY`
-   with `TEST_MODE=simulation`, so `ctest` (and the planned pytest layer) can launch it.
-7. **Retire** the old `sw/lib`, `sw/include`, `sw/link`, `sw/tests`, and the `chim-sw` make rules
-   once parity is reached.
+The Make wrapper (`sw/sw.mk`) runs the SDK's CMake inside the toolchain container via
+`scripts/sdk_container.sh`:
 
-## Containerized build (Docker / Singularity)
-
-The SDK builds inside a toolchain container (LLVM + compiler-rt multilib + picolibc). Standard
-Docker flow:
-
-```bash
-docker run -it --rm -v $(pwd):/app/chimera <image> zsh
-cmake -D TARGET_PLATFORM=chimera-open \
-      -D TOOLCHAIN_DIR=/app/install/llvm-18.1.4-pulp \
-      -D PICOLIBC_DIR=/app/install/picolibc \
-      -D HARDWARE_BACKEND=RTL -D CHIMERA_UNIFIED_ELF=ON -B build
-cmake --build build -j
+```sh
+make chim-sw-init        # git submodule update --init --recursive sw/deps/chimera-sdk
+make chim-sw             # = chim-sw-configure + chim-sw-build (in the container)
+make chim-sw-shell       # interactive shell in the container (debugging)
 ```
 
-On IIS workstations (no Docker) use **Singularity/Apptainer**:
-`singularity pull docker://<image>` then `singularity shell -e -s /bin/zsh <sif>` (`-e` isolates
-the host env so container tool paths win).
+`chim-sw-configure` depends (order-only) on `chim-rdl`, so the SystemRDL-generated register/address
+headers the SDK consumes are refreshed first. The CMake args are assembled in `sw/sw.mk`
+(`CHIM_SDK_CMAKE_ARGS`): `TARGET_PLATFORM=chimera-gen`, `TOOLCHAIN_DIR`, `PICOLIBC_DIR`,
+`HARDWARE_BACKEND=RTL`, `CHIMERA_UNIFIED_ELF=ON`.
 
-> ⚠ **Image name is inconsistent in the SDK** — README uses `chimera:latest`, usage.rst uses
-> `chimera:devel`, CLAUDE.md uses `deeploy:devel`. Standardize on one before documenting the
-> chimera-top build.
+## Containerized build (Singularity / Docker)
 
-## Open questions to resolve during integration
+`scripts/sdk_container.sh` runs any command inside the SDK toolchain container (LLVM +
+compiler-rt multilib + picolibc + Python deps). It auto-selects **Singularity/Apptainer** (IIS
+workstations) or **Docker**, pulling the image on first use.
 
-- Submodule location/name (`sw/sdk` vs top-level `chimera-sdk`).
-- Whether chimera-top keeps the Bender/Make HW flow while the SDK owns *only* SW (recommended:
-  yes — HW stays Bender, SW moves to the SDK's CMake).
-- How the SDK's per-domain ELFs are preloaded by the existing `tb_chimera_soc.sv` fast-debug path
-  (which currently expects a single memisl ELF).
+- `CHIM_SDK_IMAGE` — docker image ref (default `ghcr.io/xeratec/chimera`).
+- `CHIM_SDK_SIF` — cached `.sif` (default `<repo>/.cache/containers/chimera_latest.sif`).
+- `CHIM_SDK_CACHE_DIR` — writable uv/ccache root (default `<repo>/.cache`), kept on the
+  bind-mounted scratch (IIS `$HOME` quota is too small). A container-specific venv
+  (`.venv-container`) is used, separate from the host `.venv`.
+- `CONTAINER_RUNTIME=auto|singularity|docker` to force a runtime.
+
+The repo (and any external cache dir) is bind-mounted at the **same path** inside the container so
+build artifacts and their baked-in absolute paths are identical on host and in the container.
+
+## Testing
+
+See `verification.md`: `make chim-test-configure` re-runs CMake with `TEST_MODE=simulation` (adds
+`SOC_MODEL_BINARY=scripts/sim_runner.sh`, `PRELOAD_MODE=3`), registering one ctest case per test;
+`make chim-test` builds and runs them through the pytest front-end.

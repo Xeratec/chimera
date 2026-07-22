@@ -23,7 +23,7 @@ Chimera is developed as part of the [PULP (Parallel Ultra-Low Power) Platform](h
 ## 📜 License
 Unless specified otherwise in the respective file headers, all code in this repository is released under permissive licenses.
 - Hardware sources and tool scripts are licensed under the Solderpad Hardware License 0.51 (see [LICENSE-SHL](LICENSE-SHL)) or compatible licenses.
-- Register file code (e.g. [hw/regs/*.sv](hw/regs/)) is generated using a fork of lowRISC's [regtool](https://github.com/lowRISC/opentitan/blob/master/util/regtool.py) and is licensed under Apache 2.0 (see [LICENSE-APACHE](LICENSE-APACHE)).
+- Register file and address-map code (e.g. [hw/regs/*.sv](hw/regs/)) is generated from SystemRDL ([cfg/rdl](cfg/rdl/)) with [peakrdl](https://github.com/SystemRDL/PeakRDL) and is licensed under Apache 2.0 (see [LICENSE-APACHE](LICENSE-APACHE)).
 - All software sources are licensed under Apache 2.0.
 
 ## 🚀 Getting started
@@ -40,55 +40,73 @@ Non-IIS users need to follow a few more steps to set up the environment properly
 Chimera uses [Bender](https://github.com/pulp-platform/bender) to manage hardware dependencies and automatically generate compilation scripts.
 
 #### Python environment
-Python 3.11 or later is required. Create and activate a virtual environment:
+Python 3.11 or later is required. The environment is managed with [uv](https://docs.astral.sh/uv/)
+(dependencies in `pyproject.toml`, pinned in `uv.lock`):
 ```sh
-make python-venv
+make python-venv          # uv sync -> .venv
 source .venv/bin/activate
 ```
-You can override the Python version using the `BASE_PYTHON` environment variable.
-Dependencies are listed in `requirements.txt` and handled via the `python-venv` target.
 
 #### Toolchain
-Chimera requires a working RISC-V GCC toolchain for building the Cheshire 32-bit host code. Follow the _Installation (Newlib)_ instructions from [pulp-platform/riscv-gni-toolchain](https://github.com/pulp-platform/riscv-gnu-toolchain).\
-After installation, export the toolchain path:
+Chimera requires a RISC-V GCC toolchain for building the **hardware-side** bootroms (64-bit host,
+`rv64gc`; the Snitch bootrom is `rv32im`). Follow the _Installation (Newlib)_ instructions from
+[pulp-platform/riscv-gnu-toolchain](https://github.com/pulp-platform/riscv-gnu-toolchain) and export
+its path:
 ```shell
 export RISCV_GCC_BINROOT=/path/to/gcc/bin
-export $PATH=$PATH:$RISCV_GCC_BINROOT
+export PATH=$PATH:$RISCV_GCC_BINROOT
 ```
-To verify that the toolchain is in your path:
-```shell
-which riscv32-unknown-elf-gcc
-```
+The **SoC software** (chimera-sdk) uses its own LLVM + picolibc toolchain shipped in a container —
+no host RISC-V GCC needed for it (see [docs/sdk-integration.md](docs/sdk-integration.md)).
 
 ### 🛠️ Build RTL
-If you have all needed dependencies and you want to build the full Chimera SoC, both RTL and SW, run:
+If you have all needed dependencies and you want to build the full Chimera SoC (RTL + SW + sim), run:
 ``` sh
 bender checkout
 make chim-all
 ```
 Or for more selective builds:
 ```sh
-make chs-hw-init
-make sn-hw-all
-make chim-sw
-make chim-bootrom-init
-```
-⚠️ You must build the software (`chim-sw`) before building the boot ROM (`chim-bootrom-init`).
-
-### Compile Software Tests
-To compile the software for Cheshire:
-```sh
-make chim-sw
+make chs-hw-init          # generate Cheshire RTL
+make sn-hw-all            # generate Snitch cluster RTL
+make chim-rdl             # generate memory-map / register artifacts from SystemRDL (cfg/rdl)
+make chim-bootrom-init    # generate the SoC bootroms
+make chim-sim             # compile the RTL in QuestaSim
 ```
 
-### Platform simulation
-To run simulations, ensure you have Questa installed and accessible via vsim (`which vsim`).\
-To compile the hardware run `make chim-sim`.\
-To run a simulation, use the `chim-run` target. You must specify the path to the compiled Cheshire binary using the `BINARY` variable:
+### 💾 Build the software (chimera-sdk)
+The SoC software is the [chimera-sdk](sw/deps/chimera-sdk) submodule, built with LLVM + picolibc
+**inside a toolchain container** (Singularity/Apptainer on IIS, Docker elsewhere; handled by
+`scripts/sdk_container.sh`). Initialise and build it with:
 ```sh
-make chim-run-batch BINARY=path/to/sw/tests.elf
+make chim-sw-init         # git submodule update --init --recursive sw/deps/chimera-sdk
+make chim-sw              # configure + build the SDK (TARGET_PLATFORM=chimera-gen) in the container
 ```
-To run the simulation in batch mode, use the `chim-run-batch` target.
+See [docs/sdk-integration.md](docs/sdk-integration.md) for container/toolchain details.
+
+### ✅ Run the test suite
+Tests are registered as `ctest` cases by the SDK and driven by a pytest front-end; the RTL
+simulation runs in QuestaSim (`which vsim`):
+```sh
+make chim-test                                   # build + run the whole suite (pytest)
+make chim-test VERBOSE=1                          # live vsim streaming
+make chim-test JOBS=4                             # run 4 sims in parallel
+make chim-test PYTEST_EXTRA="-m host"            # only host tests (markers: host / cluster)
+make chim-test PYTEST_EXTRA="-k snitchCluster"   # select by name
+```
+Run a single case directly with ctest while debugging:
+```sh
+SIM_TIMEOUT=600 ctest --test-dir sw/deps/chimera-sdk/build \
+    -R '^test_host_returnZero$' --output-on-failure -V
+```
+See [docs/verification.md](docs/verification.md) for the full flow and test inventory.
+
+### Platform simulation (manual)
+`make chim-sim` compiles the design. To run a single ELF outside the test harness use
+`chim-run` (GUI) / `chim-run-batch` (batch), passing the unified ELF via `BINARY`:
+```sh
+make chim-run-batch BINARY=path/to/<test>_unified.elf
+```
 
 ### Additional Help
 To list all available make targets and their descriptions:
